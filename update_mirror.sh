@@ -80,45 +80,80 @@ ENDL
 
 pkg update -f -r "repo"
 
-# Phase 3. Cleanup repo from obsolete files/links if needed
+hardlink_hashed()
+{
+	CDIR=$(pwd)
+	# skip if Hashed dir is not in use for this repo
+	if [ -d "$1/All/Hashed" ]; then
+		cd "$1/All";
+	elif [ -d "$1/Hashed" ]; then
+		cd "$1";
+	else
+		return 0;
+	fi
+
+	relinked=0
+	for item in `find Hashed -type f`; do
+		ln -f "${item}" .;
+		relinked=$((relinked+1))
+	done
+	broken_links=0
+	for item in `find ./ -depth 1 -type l`; do
+		if [ -r "${item}" ]; then continue; fi
+		rm "${item}";
+		broken_links=$((broken_links+1))
+	done
+	cd "${CDIR}"
+	echo "Relinked ${relinked} files, removed ${broken_links} broken symlinks"
+}
+
 cleanup_repo()
 {
 	# skel for this repo is not available
 	[ -d "$2" ] || return 0;
 
 	TARGET_NFILES=$(pkg rquery -U -r "repo" '%n' | wc -l)
-	CURRENT_NFILES=$(find "$1" -type f | wc -l)
-
 	[ ${TARGET_NFILES} -gt 100 ] || return 0;
+
+	CURRENT_NFILES=$(find "$1" -not -type d -and -not -newerat '1 month ago' | wc -l)
 	[ ${CURRENT_NFILES} -gt 100 ] || return 0;
 
 	# at least 1/3 of files is obsolete
-	[ $((3*(CURRENT_NFILES-TARGET_NFILES))) -gt ${TARGET_NFILES} ] || return 0
+	[ $((3*CURRENT_NFILES)) -gt ${TARGET_NFILES} ] || return 0
 
 	echo -e "\n\n!!! Cleanup is needed: current_files=${CURRENT_NFILES}, target_files=${TARGET_NFILES}\n";
 
 	CDIR=$(pwd)
 	FILELIST=$(mktemp)
 	cd "$1"
-	# make file list
-	find ./ -type f > ${FILELIST}
 	# a "new" repo is born
 	NREPODIR="$1/.newrepo"
 	mkdir -p "${NREPODIR}"
 	tar -C "$2" -cf - . | tar -C ${NREPODIR} -xpf -
 	lockf -k /tmp/recreate-all.lock pkg fetch -Uqays -o ${NREPODIR} -r "repo"
+	hardlink_hashed "${NREPODIR}"
 
 	# now scan new repo for obsolete files located in the real repo
-	for item in `cat "${FILELIST}"`; do
-		[ -r "${NREPODIR}/${item}" ] || rm "${item}"
+	# broken symlinks will be deleted by hardlink_hashed
+	NOW=$(date -j '+%s')
+	deleted=0
+	for item in `find ./ -not -type d -and -not -newerat '1 month ago'`; do
+		if [ -r "${NREPODIR}/${item}" ]; then continue; fi
+		deleted=$((deleted+1))
+		rm "${item}"
 	done
 	cd "${CDIR}"
 	rm -r "${NREPODIR}"
-	rm ${FILELIST}
+
+	echo "Deleted ${deleted} files";
 
 	return 0;
 }
 
+# Phase 3. Cleanup repo from obsolete files/links if needed
 cleanup_repo "${REPOLOCALROOT}" "${SKELREPODIR}"
+
+# Phase 4. Add missing, remove broken symlinks: symlink every file in Hashed to an upper layer
+hardlink_hashed "${REPOLOCALROOT}"
 
 exit 0;

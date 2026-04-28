@@ -88,7 +88,7 @@ mirror_releng()
 				zfs destroy "${CLONE_NAME}"
 			fi
 
-			zfs clone -o readonly=on "${SNAP_NAME}" "${CLONE_NAME}"
+			zfs clone -o readonly=on -o atime=off "${SNAP_NAME}" "${CLONE_NAME}"
 
 			for oldsnap in `zfs list -H -o name -t snap -r "${ZFSROOT}/${REPO}"`; do
 				if [ "X${oldsnap}" = "X${SNAP_NAME}" ]; then
