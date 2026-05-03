@@ -17,6 +17,7 @@ Example:
 
 from __future__ import annotations
 
+import logging
 import re
 import sys
 import posixpath
@@ -51,6 +52,8 @@ class Mirror:
         self.unique_files: set[str] = set()
         self.forbidden_urls: set[str] = set()
 
+        logging.basicConfig(level=logging.INFO)
+
     def debug(self, message: str) -> None:
         if DEBUG:
             print(f"[DEBUG] {message}", flush=True)
@@ -62,8 +65,6 @@ class Mirror:
         session = requests.Session()
 
         adapter = HTTPAdapter(
-            pool_connections=1,
-            pool_maxsize=1,
             pool_block=True,
         )
 
