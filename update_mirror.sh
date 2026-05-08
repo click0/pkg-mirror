@@ -80,6 +80,15 @@ ENDL
 
 pkg update -f -r "repo"
 
+#
+# Description: Creates hardlinks from the Hashed directory to the parent directory and removes broken symlinks.
+#              This function handles package repositories that use content-addressable storage where files
+#              are stored in a Hashed subdirectory and hardlinked to their actual locations.
+# Parameters:
+#   $1 - Path to the repository directory (e.g., "/pkgmirror/pkg.freebsd.org/FreeBSD:14:amd64/quarterly")
+# Returns:
+#   0 - Success
+#
 hardlink_hashed()
 {
 	CDIR=$(pwd)
@@ -107,6 +116,16 @@ hardlink_hashed()
 	echo "Relinked ${relinked} files, removed ${broken_links} broken symlinks"
 }
 
+#
+# Description: Cleans up obsolete files from a package repository by comparing current files with
+#              the target repository state. This function performs a full repository recreation
+#              when more than 1/3 of files are obsolete (older than 1 month).
+# Parameters:
+#   $1 - Path to the local repository directory to clean (e.g., "/pkgmirror/pkg.freebsd.org/FreeBSD:14:amd64/quarterly")
+#   $2 - Path to the skeleton repository directory used as template (e.g., "/pkgmirror/skel/pkg.freebsd.org/FreeBSD:14:amd64/quarterly")
+# Returns:
+#   0 - Success
+#
 cleanup_repo()
 {
 	# skel for this repo is not available
