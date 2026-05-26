@@ -35,7 +35,7 @@ update_skel()
 	echo "Updating skel with pymirror"
 	mkdir -p skel/pkg.freebsd.org || exit 1
 
-	python pymirror.py https://pkg.freebsd.org skel/pkg.freebsd.org
+	python3 pymirror.py https://pkg.freebsd.org skel/pkg.freebsd.org
 
 	PYMIRROREXITCODE=$?
 
@@ -119,13 +119,14 @@ mirror_releng()
 
 	printf '=====================================\n\n'
 
+	cp "${LOGFILE}" "${LOGSDST}"
+
 	if [ -n "${fail}" ]; then
 		echo "Failed repos:${fail}"
-	else
-		echo "All good!"
+		return 1
 	fi
 
-	cp "${LOGFILE}" "${LOGSDST}"
+	echo "All good!"
 	return 0
 }
 

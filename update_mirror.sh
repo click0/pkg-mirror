@@ -54,7 +54,7 @@ mkdir -p "${PKG_DBDIR}"
 
 
 # Phase 1. Import file-based repo
-cat > ${REPOS_DIR}/repo.conf <<ENDL
+cat > "${REPOS_DIR}/repo.conf" <<ENDL
 repo: {
 	url: "file://${REPOLOCALROOT}",
 	enabled: yes
@@ -66,7 +66,7 @@ export ASSUME_ALWAYS_YES=YES
 pkg update -f -r "repo"
 
 # Phase 2. Download packages
-cat > ${REPOS_DIR}/repo.conf <<ENDL
+cat > "${REPOS_DIR}/repo.conf" <<ENDL
 repo: {
 	url: "https://${REPOURL}",
 	enabled: yes
@@ -76,14 +76,14 @@ ENDL
 # A dirty hack to keep repo's meta files in sync
 # This
 # 1) evades us from "Repository %s has a wrong packagesite, need to re-create database"
-# 2) forces pkg to download packages specified in pre-downloaded repositoty metadata
+# 2) forces pkg to download packages specified in pre-downloaded repository metadata
 sqlite3 "${PKG_DBDIR}/repos/repo/db" "UPDATE repodata SET value='https://${REPOURL}' WHERE key='packagesite';"
 
 pkg fetch -Uays -o "${REPOLOCALROOT}" -r "repo"
 
 sqlite3 "${PKG_DBDIR}/repos/repo/db" "UPDATE repodata SET value='https://${REPOLOCALROOT}' WHERE key='packagesite';"
 
-cat > ${REPOS_DIR}/repo.conf <<ENDL
+cat > "${REPOS_DIR}/repo.conf" <<ENDL
 repo: {
 	url: "file://${REPOLOCALROOT}",
 	enabled: yes

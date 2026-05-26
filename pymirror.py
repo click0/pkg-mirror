@@ -23,6 +23,7 @@ import logging
 import re
 import posixpath
 from collections import deque
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Final, Iterable
 from urllib.parse import urljoin, urlparse, urldefrag, unquote
@@ -78,6 +79,23 @@ class Mirror:
 
         logger.debug("HTTP session created with retry policy")
         return session
+
+    def _is_up_to_date(self, path: Path, response: Response) -> bool:
+        """Return True if local file matches remote based on Content-Length and Last-Modified."""
+        if not path.exists():
+            return False
+        content_length = response.headers.get("Content-Length")
+        if not content_length or path.stat().st_size != int(content_length):
+            return False
+        last_modified = response.headers.get("Last-Modified")
+        if last_modified:
+            try:
+                remote_mtime = parsedate_to_datetime(last_modified).timestamp()
+                if remote_mtime > path.stat().st_mtime:
+                    return False
+            except Exception:
+                pass
+        return True
 
     def run(self) -> None:
         logger.debug("Starting crawl: %s", self.base_url)
@@ -174,9 +192,9 @@ class Mirror:
     def save_binary(self, url: str, response: Response) -> None:
         path = self.url_to_path(url, is_html=False)
 
-        # With stream=True the body is not yet downloaded; check size before reading
-        content_length = response.headers.get("Content-Length")
-        if content_length and path.exists() and path.stat().st_size == int(content_length):
+        # With stream=True the body is not yet downloaded; check headers before reading.
+        # Skip only when size matches AND remote is not newer than our local copy.
+        if self._is_up_to_date(path, response):
             response.close()
             logger.debug("Skipped (up to date): %s", path)
             if path.name and "Latest" not in url:
@@ -256,7 +274,7 @@ class Mirror:
                 url = f"{base}/{filename}"
 
                 try:
-                    response = self.fetch(url, stream=True)
+                    response = self.fetch(url)
                 except requests.RequestException:
                     continue
 
