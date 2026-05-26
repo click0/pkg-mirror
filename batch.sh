@@ -53,6 +53,11 @@ mirror_releng()
 {
 	set -e
 
+	if [ ! -d pkg.freebsd.org ]; then
+		echo "Error: pkg.freebsd.org directory not found. Run without --no-wget first." >&2
+		return 1
+	fi
+
 	echo "Start mirror releng $1 sync @ ${DATETIME} (${TIMESTAMP})"
 	echo "List of repositories that were not updated due to an error can be found at the end of this log."
 
@@ -167,6 +172,7 @@ while [ $# -gt 0 ]; do
 done
 
 mkdir -p logs || exit 1
+mkdir -p "${LOGSDST}" || exit 1
 
 if [ "${DO_WGET}" -eq 1 ]; then
 	exec >"${LOGFILE}" 2>&1
@@ -183,6 +189,11 @@ if [ -n "${RELENG_ARG}" ]; then
 	exec >"${LOGFILE}" 2>&1
 	mirror_releng "${RELENG_ARG}"
 	exit $?
+fi
+
+if [ ! -d pkg.freebsd.org ]; then
+	echo "Error: pkg.freebsd.org directory not found. Run --wget-only first." >&2
+	exit 1
 fi
 
 for releng in `find pkg.freebsd.org -type d -depth 1 | cut -f 2 -d: | sort -u`; do

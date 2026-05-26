@@ -41,9 +41,10 @@ logger = logging.getLogger(__name__)
 
 
 class Mirror:
-    def __init__(self, base_url: str, output_dir: Path) -> None:
+    def __init__(self, base_url: str, output_dir: Path, max_pages: int = MAX_PAGES) -> None:
         self.base_url: str = base_url.rstrip("/")
         self.output_dir: Path = output_dir
+        self.max_pages: int = max_pages
 
         parsed = urlparse(self.base_url)
         self.netloc: str = parsed.netloc
@@ -83,7 +84,7 @@ class Mirror:
 
         pages_processed = 0
 
-        while self.queue and pages_processed < MAX_PAGES:
+        while self.queue and pages_processed < self.max_pages:
             url = self.queue.popleft()
 
             if url in self.visited:
@@ -109,9 +110,11 @@ class Mirror:
             if response.status_code == 403:
                 self.forbidden_urls.add(url)
                 logger.debug("Stored forbidden URL: %s", url)
+                response.close()
                 continue
 
             if response.status_code != 200:
+                response.close()
                 continue
 
             content_type = response.headers.get("Content-Type", "").lower()
@@ -263,6 +266,8 @@ class Mirror:
                 if response.status_code == 200:
                     self.visited.add(url)
                     self.save_binary(url, response)
+                else:
+                    response.close()
 
     def close(self) -> None:
         self.session.close()
@@ -277,6 +282,13 @@ def main() -> int:
     parser.add_argument("url", help="Base URL to mirror")
     parser.add_argument("output_dir", help="Local directory to save files")
     parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    parser.add_argument(
+        "--max-pages",
+        type=int,
+        default=MAX_PAGES,
+        metavar="N",
+        help=f"Stop crawling after N pages (default: {MAX_PAGES})",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -284,7 +296,7 @@ def main() -> int:
         format="[%(levelname)s] %(message)s",
     )
 
-    mirror = Mirror(args.url, Path(args.output_dir))
+    mirror = Mirror(args.url, Path(args.output_dir), max_pages=args.max_pages)
 
     try:
         mirror.run()

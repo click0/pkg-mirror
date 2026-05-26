@@ -143,14 +143,15 @@ cleanup_repo()
 	# skel for this repo is not available
 	[ -d "$2" ] || return 0;
 
+	# BSD wc -l pads output with spaces; use $((...)) to coerce to integer
 	TARGET_NFILES=$(pkg rquery -U -r "repo" '%n' | wc -l)
-	[ ${TARGET_NFILES} -gt 100 ] || return 0;
+	[ $((TARGET_NFILES)) -gt 100 ] || return 0;
 
 	CURRENT_NFILES=$(find "$1" -not -type d -and -not -newerat '1 month ago' | wc -l)
-	[ ${CURRENT_NFILES} -gt 100 ] || return 0;
+	[ $((CURRENT_NFILES)) -gt 100 ] || return 0;
 
 	# at least 1/3 of files is obsolete
-	[ $((3*CURRENT_NFILES)) -gt ${TARGET_NFILES} ] || return 0
+	[ $((3*CURRENT_NFILES)) -gt $((TARGET_NFILES)) ] || return 0
 
 	printf '\n\n!!! Cleanup is needed: current_files=%s, target_files=%s\n\n' \
 		"${CURRENT_NFILES}" "${TARGET_NFILES}"
