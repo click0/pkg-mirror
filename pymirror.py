@@ -13,14 +13,17 @@ Website mirror script with debug output.
 
 Example:
     python pymirror.py https://example.com ./mirror
+    python pymirror.py --debug https://example.com ./mirror
 """
 
 from __future__ import annotations
 
+import argparse
 import logging
 import re
 import sys
 import posixpath
+from collections import deque
 from pathlib import Path
 from typing import Final, Iterable
 from urllib.parse import urljoin, urlparse, urldefrag, unquote
@@ -28,12 +31,14 @@ from urllib.parse import urljoin, urlparse, urldefrag, unquote
 import requests
 from requests import Response, Session
 from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 USER_AGENT: Final[str] = "MirrorBot/1.0"
 TIMEOUT: Final[int] = 20
 MAX_PAGES: Final[int] = 100000
-DEBUG: Final[bool] = False
+
+logger = logging.getLogger(__name__)
 
 
 class Mirror:
@@ -47,41 +52,40 @@ class Mirror:
         self.session: Session = self._build_session()
 
         self.visited: set[str] = set()
-        self.queue: list[str] = [self.base_url]
+        self.queued: set[str] = {self.base_url}
+        self.queue: deque[str] = deque([self.base_url])
 
         self.unique_files: set[str] = set()
         self.forbidden_urls: set[str] = set()
 
-        logging.basicConfig(level=logging.INFO)
-
-    def debug(self, message: str) -> None:
-        if DEBUG:
-            print(f"[DEBUG] {message}", flush=True)
-
-    def info(self, message: str) -> None:
-        print(f"[INFO] {message}", flush=True)
-
     def _build_session(self) -> Session:
         session = requests.Session()
 
+        retry = Retry(
+            total=3,
+            backoff_factor=0.5,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["GET"],
+        )
         adapter = HTTPAdapter(
             pool_block=True,
+            max_retries=retry,
         )
 
         session.mount("http://", adapter)
         session.mount("https://", adapter)
         session.headers.update({"User-Agent": USER_AGENT})
 
-        self.debug("HTTP session created with single connection pool")
+        logger.debug("HTTP session created with retry policy")
         return session
 
     def run(self) -> None:
-        self.debug(f"Starting crawl: {self.base_url}")
+        logger.debug("Starting crawl: %s", self.base_url)
 
         pages_processed = 0
 
         while self.queue and pages_processed < MAX_PAGES:
-            url = self.queue.pop(0)
+            url = self.queue.popleft()
 
             if url in self.visited:
                 continue
@@ -89,23 +93,23 @@ class Mirror:
             self.visited.add(url)
             pages_processed += 1
 
-            self.debug(f"Crawling ({pages_processed}): {url}")
+            logger.debug("Crawling (%d): %s", pages_processed, url)
 
             if "=" in url:
-                self.info(f"Skipped URL with '=': {url}")
+                logger.info("Skipped URL with '=': %s", url)
                 continue
 
             try:
                 response = self.fetch(url)
             except requests.RequestException as exc:
-                self.debug(f"Request failed: {url} ({exc})")
+                logger.debug("Request failed: %s (%s)", url, exc)
                 continue
 
-            self.info(f"Response {response.status_code}: {url}")
+            logger.info("Response %d: %s", response.status_code, url)
 
             if response.status_code == 403:
                 self.forbidden_urls.add(url)
-                self.debug(f"Stored forbidden URL: {url}")
+                logger.debug("Stored forbidden URL: %s", url)
                 continue
 
             if response.status_code != 200:
@@ -115,19 +119,19 @@ class Mirror:
 
             if "text/html" in content_type:
                 self.save_html(url, response)
-                self.enqueue_links(url + '/', response.text)
+                self.enqueue_links(url.rstrip("/") + "/", response.text)
             else:
                 self.save_binary(url, response)
 
         self.retry_forbidden_paths()
 
-    def fetch(self, url: str) -> Response:
-        self.debug(f"GET {url}")
+    def fetch(self, url: str, stream: bool = False) -> Response:
+        logger.debug("GET %s", url)
         return self.session.get(
             url,
             timeout=TIMEOUT,
             allow_redirects=True,
-            stream=False,
+            stream=stream,
         )
 
     def enqueue_links(self, current_url: str, html: str) -> None:
@@ -138,14 +142,15 @@ class Mirror:
             if "=" in absolute:
                 continue
 
-            if re.match('^FreeBSD.*\.pkg', link):
+            if re.search(r'FreeBSD.*\.pkg', link):
                 continue
 
             if not self.is_same_site(absolute):
                 continue
 
-            if absolute not in self.visited:
+            if absolute not in self.visited and absolute not in self.queued:
                 self.queue.append(absolute)
+                self.queued.add(absolute)
 
     def extract_links(self, html: str) -> Iterable[str]:
         pattern = re.compile(
@@ -162,24 +167,21 @@ class Mirror:
         path = self.url_to_path(url, is_html=True)
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(response.content)
-        self.debug(f"Saved HTML: {path}")
+        logger.debug("Saved HTML: %s", path)
 
     def save_binary(self, url: str, response: Response) -> None:
         path = self.url_to_path(url, is_html=False)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(response.content)
-        self.debug(f"Saved file: {path}")
+        with path.open("wb") as fh:
+            for chunk in response.iter_content(chunk_size=65536):
+                fh.write(chunk)
+        logger.debug("Saved file: %s", path)
 
         if path.name and "Latest" not in url:
             self.unique_files.add(path.name)
 
     def decode_path(self, raw_path: str) -> str:
-        """
-        Decode URL-encoded characters:
-        %20 -> space
-        %5B -> [
-        etc.
-        """
+        """Decode URL-encoded characters (%20 -> space, etc.)"""
         return unquote(raw_path)
 
     def sanitize_parts(self, path_value: str) -> str:
@@ -217,28 +219,37 @@ class Mirror:
 
         local_path = self.output_dir / clean_path
 
-        self.debug(f"Decoded path: {parsed.path} -> {local_path}")
+        logger.debug("Decoded path: %s -> %s", parsed.path, local_path)
 
         return local_path
 
     def retry_forbidden_paths(self) -> None:
-        for forbidden_url in sorted(self.forbidden_urls):
+        if not self.forbidden_urls:
+            return
 
-            self.info(f"Retrying forbidden URL {forbidden_url}")
+        files = sorted(self.unique_files)
+        logger.info(
+            "Retrying %d forbidden URL(s) x %d unique files = %d requests",
+            len(self.forbidden_urls),
+            len(files),
+            len(self.forbidden_urls) * len(files),
+        )
+
+        for forbidden_url in sorted(self.forbidden_urls):
+            logger.info("Retrying forbidden URL %s", forbidden_url)
 
             base = forbidden_url.rstrip("/")
 
-            for filename in sorted(self.unique_files):
+            for filename in files:
                 url = f"{base}/{filename}"
 
                 try:
-                    response = self.fetch(url)
+                    response = self.fetch(url, stream=True)
                 except requests.RequestException:
                     continue
 
-                self.debug(f"Retry {response.status_code}: {url}")
-
-                self.info(f"Response {response.status_code}: {url}")
+                logger.debug("Retry %d: %s", response.status_code, url)
+                logger.info("Response %d: %s", response.status_code, url)
 
                 if response.status_code == 200:
                     self.visited.add(url)
@@ -246,24 +257,39 @@ class Mirror:
 
     def close(self) -> None:
         self.session.close()
-        self.debug("Session closed")
+        logger.debug("Session closed")
 
 
 def main() -> int:
-    if len(sys.argv) != 3:
-        print("Usage: python mirror.py <url> <output_dir>")
-        return 1
+    parser = argparse.ArgumentParser(
+        description="Mirror a website's directory structure locally.",
+        epilog="Example: python pymirror.py https://pkg.freebsd.org ./mirror",
+    )
+    parser.add_argument("url", help="Base URL to mirror")
+    parser.add_argument("output_dir", help="Local directory to save files")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
+    args = parser.parse_args()
 
-    mirror = Mirror(sys.argv[1], Path(sys.argv[2]))
+    logging.basicConfig(
+        level=logging.DEBUG if args.debug else logging.INFO,
+        format="[%(levelname)s] %(message)s",
+    )
+
+    mirror = Mirror(args.url, Path(args.output_dir))
 
     try:
         mirror.run()
+    except Exception as exc:
+        logger.error("Mirror failed: %s", exc)
+        return 1
     finally:
         mirror.close()
 
-    print("Done.")
-    print(f"Visited URLs: {len(mirror.visited)}")
-    print(f"Forbidden URLs: {len(mirror.forbidden_urls)}")
+    logger.info(
+        "Done. Visited URLs: %d, Forbidden URLs: %d",
+        len(mirror.visited),
+        len(mirror.forbidden_urls),
+    )
 
     return 0
 

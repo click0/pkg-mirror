@@ -97,6 +97,7 @@ mirror_releng()
 
 				SNAP_CREATED=`zfs get -Hp creation -o value "${oldsnap}"`
 
+				# keep if expiry (creation + 7 days) is still in the future
 				if [ -n "${SNAP_CREATED}" -a $((SNAP_CREATED + 7*86400)) -gt "${TIMESTAMP}" ]; then
 					echo "Keep snapshot ${oldsnap}"
 					continue
@@ -138,6 +139,10 @@ while [ $# -gt 0 ]; do
 			;;
 		--no-wget)
 			DO_WGET=0
+			if [ ${WGET_ONLY} -eq 1 ]; then
+				usage;
+				exit 1;
+			fi
 			;;
 		--help|-h)
 			usage
