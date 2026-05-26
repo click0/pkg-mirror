@@ -12,8 +12,8 @@ Website mirror script with debug output.
     under that forbidden path
 
 Example:
-    python pymirror.py https://example.com ./mirror
-    python pymirror.py --debug https://example.com ./mirror
+    python3 pymirror.py https://example.com ./mirror
+    python3 pymirror.py --debug https://example.com ./mirror
 """
 
 from __future__ import annotations
@@ -82,16 +82,20 @@ class Mirror:
 
     def _is_up_to_date(self, path: Path, response: Response) -> bool:
         """Return True if local file matches remote based on Content-Length and Last-Modified."""
-        if not path.exists():
-            return False
         content_length = response.headers.get("Content-Length")
-        if not content_length or path.stat().st_size != int(content_length):
+        if not content_length:
+            return False
+        try:
+            stat = path.stat()
+        except FileNotFoundError:
+            return False
+        if stat.st_size != int(content_length):
             return False
         last_modified = response.headers.get("Last-Modified")
         if last_modified:
             try:
                 remote_mtime = parsedate_to_datetime(last_modified).timestamp()
-                if remote_mtime > path.stat().st_mtime:
+                if remote_mtime > stat.st_mtime:
                     return False
             except Exception:
                 pass
@@ -110,6 +114,13 @@ class Mirror:
 
             self.visited.add(url)
             pages_processed += 1
+
+            if pages_processed % 1000 == 0:
+                logger.info(
+                    "Progress: %d pages processed, %d in queue",
+                    pages_processed,
+                    len(self.queue),
+                )
 
             logger.debug("Crawling (%d): %s", pages_processed, url)
 

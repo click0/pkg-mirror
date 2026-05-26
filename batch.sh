@@ -197,6 +197,11 @@ if [ ! -d pkg.freebsd.org ]; then
 	exit 1
 fi
 
+# Redirect to log if update_skel did not already do so (--no-wget case)
+if [ "${DO_WGET}" -eq 0 ]; then
+	exec >"${LOGFILE}" 2>&1
+fi
+
 for releng in `find pkg.freebsd.org -type d -depth 1 | cut -f 2 -d: | sort -u`; do
 	screen -d -m lockf -k -t0 "/tmp/pkg-sync-${releng}.lock" \
 		sh "$0" --no-wget "${releng}"
