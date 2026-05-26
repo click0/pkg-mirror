@@ -79,7 +79,7 @@ ENDL
 # 2) forces pkg to download packages specified in pre-downloaded repositoty metadata
 sqlite3 "${PKG_DBDIR}/repos/repo/db" "UPDATE repodata SET value='https://${REPOURL}' WHERE key='packagesite';"
 
-pkg fetch -Uays -o ${REPOLOCALROOT} -r "repo"
+pkg fetch -Uays -o "${REPOLOCALROOT}" -r "repo"
 
 sqlite3 "${PKG_DBDIR}/repos/repo/db" "UPDATE repodata SET value='https://${REPOLOCALROOT}' WHERE key='packagesite';"
 
@@ -160,8 +160,8 @@ cleanup_repo()
 	# a "new" repo is born
 	NREPODIR="$1/.newrepo"
 	mkdir -p "${NREPODIR}"
-	tar -C "$2" -cf - . | tar -C ${NREPODIR} -xpf -
-	lockf -k /tmp/recreate-all.lock pkg fetch -Uqays -o ${NREPODIR} -r "repo"
+	tar -C "$2" -cf - . | tar -C "${NREPODIR}" -xpf -
+	lockf -k /tmp/recreate-all.lock pkg fetch -Uqays -o "${NREPODIR}" -r "repo"
 	hardlink_hashed "${NREPODIR}"
 
 	# now scan new repo for obsolete files located in the real repo

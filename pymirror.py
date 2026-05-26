@@ -21,7 +21,6 @@ from __future__ import annotations
 import argparse
 import logging
 import re
-import sys
 import posixpath
 from collections import deque
 from pathlib import Path
@@ -125,7 +124,7 @@ class Mirror:
 
         self.retry_forbidden_paths()
 
-    def fetch(self, url: str, stream: bool = False) -> Response:
+    def fetch(self, url: str, stream: bool = True) -> Response:
         logger.debug("GET %s", url)
         return self.session.get(
             url,
@@ -171,6 +170,16 @@ class Mirror:
 
     def save_binary(self, url: str, response: Response) -> None:
         path = self.url_to_path(url, is_html=False)
+
+        # With stream=True the body is not yet downloaded; check size before reading
+        content_length = response.headers.get("Content-Length")
+        if content_length and path.exists() and path.stat().st_size == int(content_length):
+            response.close()
+            logger.debug("Skipped (up to date): %s", path)
+            if path.name and "Latest" not in url:
+                self.unique_files.add(path.name)
+            return
+
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("wb") as fh:
             for chunk in response.iter_content(chunk_size=65536):
