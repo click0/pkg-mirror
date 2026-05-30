@@ -3,25 +3,46 @@ for FreeBSD.
 
 Alpha-quality code, use it on your own risk! (PRs are welcome, though).
 
-To run these skripts, one should
-* have some spare disk space on a ZFS pool
-* install py311-requests to mirror metadata of repositories
-* install a web server for distibuting packages if needed
+## Dependencies
+* ZFS pool with sufficient free space (see [Space requirements](#space-requirements))
+* `sqlite3` — for patching the pkg database between sync phases
+* `screen` — for running per-releng syncs in parallel (used by `batch.sh`)
+* Python 3.11+ with `requests` library:
+  ```sh
+  pkg install py311-requests
+  ```
+* A web server for distributing packages (optional, e.g. nginx or Apache)
 
 ## update_mirror.sh
-Scripts updates a single repository. To do that, metadata for a reposiory
-should be present.
+Scripts updates a single repository. Requires the skeleton metadata to be
+present.
 
+```sh
+sh ./update_mirror.sh pkg.freebsd.org/FreeBSD:14:amd64/quarterly
+```
 
 ## batch.sh
-Scripts scraps
-1) `pkg.freebsd.com` for repositories available
-2) Runs `update_mirror.sh` for each repository created
-3) If `update_mirror.sh` is successful, publishes it using zfs
-snapshot/clone.
+1. Crawls `pkg.freebsd.org` for available repositories (`pymirror.py`)
+2. Runs `update_mirror.sh` for each repository
+3. On success, publishes the result via ZFS snapshot + clone (read-only)
 
+```sh
+# Full run (crawl metadata + sync all releng branches in parallel)
+sh batch.sh
+
+# Crawl metadata only, then exit
+sh batch.sh --wget-only
+
+# Sync packages only (skip metadata crawl)
+sh batch.sh --no-wget
+
+# Sync a specific release branch only
+sh batch.sh 14
+sh batch.sh --no-wget 14
+```
 
 ## Space requirements
+
 As of April, 2026:
 ```
 NAME                                               USED
